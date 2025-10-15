@@ -40,6 +40,29 @@ def get_lr(current_step, total_steps, lr):
     return lr / 10 + 0.5 * lr * (1 + math.cos(math.pi * current_step / total_steps))
 
 
+def _save_checkpoint(model, path):
+    if isinstance(model, torch.nn.parallel.DistributedDataParallel):
+        state_dict = model.module.state_dict()
+    else:
+        state_dict = model.state_dict()
+    clean_state_dict = {key: value for key, value in state_dict.items() if not key.startswith('vision_encoder.')}
+    clean_state_dict = {k: v.half() for k, v in clean_state_dict.items()}
+    torch.save(clean_state_dict, path)
+
+def _export_transformers(ckp_path, model_config, args):
+    try:
+        from lansight.scripts.convert import convert_torch2transformers
+        import torch as _torch
+        tf_dir = _P(OUT_DIR) / 'transformers' / 'LanSight_Model'
+        os.makedirs(tf_dir, exist_ok=True)
+        prec_map = {'bf16': _torch.bfloat16, 'fp16': _torch.float16, 'fp32': _torch.float32}
+        use_dtype = prec_map.get(str(getattr(args, 'precision', 'bf16')).lower(), _torch.bfloat16)
+        Logger(f"[export] 导出 Transformers 到: {tf_dir}")
+        convert_torch2transformers(ckp_path, str(tf_dir), model_config, dtype=use_dtype)
+    except Exception as ex:
+        Logger(f"[WARN] 自动导出 Transformers 失败: {ex}")
+
+
 def train_epoch(epoch, wandb):
     """单个 epoch 训练循环：AMP + 梯度累积 + Clip Grad。"""
     loss_fct = nn.CrossEntropyLoss(reduction='none')
@@ -92,41 +115,36 @@ def train_epoch(epoch, wandb):
                            "lr": optimizer.param_groups[-1]['lr'],
                            "epoch_Time": spend_time / (step + 1) * iter_per_epoch // 60 - spend_time // 60})
 
-        if (step + 1) % args.save_interval == 0 and (not ddp or dist.get_rank() == 0):
+        # 保存策略：每 save_every_steps 步 与 每 save_interval 步 都保存一次
+        due_25 = ((step + 1) % max(1, args.save_every_steps) == 0)
+        due_500 = ((step + 1) % max(1, args.save_interval) == 0)
+        if (due_25 or due_500) and (not ddp or dist.get_rank() == 0):
             model.eval()
             moe_path = '_moe' if model_config.use_moe else ''
             global_step = epoch * iter_per_epoch + (step + 1)
             ckp = f"{args.save_dir}/sft_vlm_{model_config.hidden_size}{moe_path}_step{global_step:06d}.pth"
-            if isinstance(model, torch.nn.parallel.DistributedDataParallel):
-                state_dict = model.module.state_dict()
-            else:
-                state_dict = model.state_dict()
-            clean_state_dict = {
-                key: value for key, value in state_dict.items() if not key.startswith('vision_encoder.')
-            }
-            clean_state_dict = {k: v.half() for k, v in clean_state_dict.items()}  # 半精度保存
-            torch.save(clean_state_dict, ckp)
-            # 删除上一个检查点（仅保留最近一次）
-            prev_step = global_step - args.save_interval
-            if prev_step > 0:
-                prev_ckp = f"{args.save_dir}/sft_vlm_{model_config.hidden_size}{moe_path}_step{prev_step:06d}.pth"
-                try:
-                    if os.path.exists(prev_ckp):
-                        os.remove(prev_ckp)
-                except Exception as e:
-                    Logger(f"[WARN] 删除旧权重失败: {prev_ckp} -> {e}")
-            # 自动导出 Transformers 结构（覆盖 out/transformers/LanSight_Model）
-            try:
-                from lansight.scripts.convert import convert_torch2transformers
-                import torch as _torch
-                tf_dir = _P(OUT_DIR) / 'transformers' / 'LanSight_Model'
-                os.makedirs(tf_dir, exist_ok=True)
-                prec_map = {'bf16': _torch.bfloat16, 'fp16': _torch.float16, 'fp32': _torch.float32}
-                use_dtype = prec_map.get(str(getattr(args, 'precision', 'bf16')).lower(), _torch.bfloat16)
-                Logger(f"[export] 导出 Transformers 到: {tf_dir}")
-                convert_torch2transformers(ckp, str(tf_dir), model_config, dtype=use_dtype)
-            except Exception as ex:
-                Logger(f"[WARN] 自动导出 Transformers 失败: {ex}")
+            _save_checkpoint(model, ckp)
+            # 命中 25 步：删除上一份 25 步的 ckpt
+            if due_25:
+                prev25_step = global_step - args.save_every_steps
+                if prev25_step > 0:
+                    prev25_ckp = f"{args.save_dir}/sft_vlm_{model_config.hidden_size}{moe_path}_step{prev25_step:06d}.pth"
+                    try:
+                        if os.path.exists(prev25_ckp):
+                            os.remove(prev25_ckp)
+                    except Exception as e:
+                        Logger(f"[WARN] 删除 25-step 旧权重失败: {prev25_ckp} -> {e}")
+            # 命中 500 步：删除上一份 500 步的 ckpt
+            if due_500:
+                prev_step = global_step - args.save_interval
+                if prev_step > 0:
+                    prev_ckp = f"{args.save_dir}/sft_vlm_{model_config.hidden_size}{moe_path}_step{prev_step:06d}.pth"
+                    try:
+                        if os.path.exists(prev_ckp):
+                            os.remove(prev_ckp)
+                    except Exception as e:
+                        Logger(f"[WARN] 删除旧权重失败: {prev_ckp} -> {e}")
+            _export_transformers(ckp, model_config, args)
             model.train()
 
         # 可选：限制每轮的训练步数用于快速验证
@@ -205,6 +223,7 @@ if __name__ == "__main__":
     parser.add_argument("--warmup_iters", type=int, default=0)
     parser.add_argument("--log_interval", type=int, default=10)
     parser.add_argument("--save_interval", type=int, default=500)
+    parser.add_argument("--save_every_steps", type=int, default=25)
     parser.add_argument("--max_steps", type=int, default=0, help="每轮最多训练多少步，0 表示不限制")
     parser.add_argument('--local_rank', type=int, default=-1)
     parser.add_argument('--hidden_size', default=512, type=int)
@@ -300,7 +319,20 @@ if __name__ == "__main__":
         model = DistributedDataParallel(model, **ddp_kwargs)
 
     iter_per_epoch = len(train_loader)
-    for epoch in range(args.epochs):
-        if train_sampler is not None:
-            train_sampler.set_epoch(epoch)
-        train_epoch(epoch, wandb)
+    try:
+        for epoch in range(args.epochs):
+            if train_sampler is not None:
+                train_sampler.set_epoch(epoch)
+            train_epoch(epoch, wandb)
+    except KeyboardInterrupt:
+        if not ddp or (ddp and dist.get_rank() == 0):
+            try:
+                model.eval()
+                moe_path = '_moe' if model_config.use_moe else ''
+                ckp_int = f"{args.save_dir}/sft_vlm_{model_config.hidden_size}{moe_path}_interrupt.pth"
+                _save_checkpoint(model, ckp_int)
+                _export_transformers(ckp_int, model_config, args)
+                Logger(f"[interrupt] 已保存中断权重: {ckp_int}")
+            except Exception as ex:
+                Logger(f"[WARN] 中断保存失败: {ex}")
+        raise

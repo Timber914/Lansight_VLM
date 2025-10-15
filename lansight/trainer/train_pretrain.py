@@ -126,7 +126,17 @@ def train_epoch(epoch, wandb):
             global_step = epoch * iter_per_epoch + (step + 1)
             ckp = f"{args.save_dir}/pretrain_vlm_{model_config.hidden_size}{moe_path}_step{global_step:06d}.pth"
             _save_checkpoint(model, ckp)
-            # 仅当命中 save_interval（例如 500 步）时删除上一个间隔检查点，避免 25 步频繁删除
+            # 命中 25 步：删除上一份 25 步的 ckpt
+            if due_25:
+                prev25_step = global_step - args.save_every_steps
+                if prev25_step > 0:
+                    prev25_ckp = f"{args.save_dir}/pretrain_vlm_{model_config.hidden_size}{moe_path}_step{prev25_step:06d}.pth"
+                    try:
+                        if os.path.exists(prev25_ckp):
+                            os.remove(prev25_ckp)
+                    except Exception as e:
+                        Logger(f"[WARN] 删除 25-step 旧权重失败: {prev25_ckp} -> {e}")
+            # 命中 500 步：删除上一份 500 步的 ckpt
             if due_500:
                 prev_step = global_step - args.save_interval
                 if prev_step > 0:
