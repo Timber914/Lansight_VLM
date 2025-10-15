@@ -54,8 +54,8 @@ if __name__ == '__main__':
     parser.add_argument('--torch_path', type=str, default='')
     parser.add_argument('--from_out', type=str, default=str((__import__('pathlib').Path(__file__).resolve().parents[2] / 'out')),
                         help='原生权重所在目录（默认使用项目 out/）')
-    parser.add_argument('--out_dir', type=str, default=str((__import__('pathlib').Path(__file__).resolve().parents[2] / 'out' / 'transformers' / 'LanSight2-V')),
-                        help='Transformers 输出目录（默认写入项目 out/transformers/LanSight2-V）')
+    parser.add_argument('--out_dir', type=str, default=str((__import__('pathlib').Path(__file__).resolve().parents[2] / 'out' / 'transformers' / 'LanSight_Model')),
+                        help='Transformers 输出目录（默认写入项目 out/transformers/LanSight_Model）')
     parser.add_argument('--auto_latest', action='store_true', default=False,
                         help='自动选择 from_out 下最新的 step 权重文件（优先），找不到则回退到固定名')
     args = parser.parse_args()

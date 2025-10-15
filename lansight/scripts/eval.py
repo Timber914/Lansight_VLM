@@ -54,8 +54,8 @@ def init_model(lm_config, device):
         except FileNotFoundError:
             print(f"[eval][warn] 未发现本地权重: {ckp}，将以随机初始化权重运行。")
     else:
-        # 支持从 --pretrained 指定的路径/仓库加载；否则默认使用 out/transformers/LanSight2-V
-        default_tf_dir = __import__('pathlib').Path(__file__).resolve().parents[2] / 'out' / 'transformers' / 'LanSight2-V'
+        # 支持从 --pretrained 指定的路径/仓库加载；否则默认使用 out/transformers/LanSight_Model
+        default_tf_dir = __import__('pathlib').Path(__file__).resolve().parents[2] / 'out' / 'transformers' / 'LanSight_Model'
         transformers_src = args.pretrained or str(default_tf_dir)
         print(f"[eval] 使用 Transformers 源: {transformers_src}")
         tokenizer = BasicChatTokenizer() if args.demo_tokenizer else AutoTokenizer.from_pretrained(transformers_src, use_fast=False)
@@ -101,7 +101,7 @@ if __name__ == "__main__":
                         help='使用内置简化分词器以便在本机环境快速运行（仅用于Demo）')
     parser.add_argument('--load', default=0, type=int, help="0: 原生torch权重，1: transformers加载")
     parser.add_argument('--pretrained', default=os.environ.get('LAN_PRETRAINED', ''), type=str,
-                        help='当 --load 1 时，Transformers 模型的本地目录或 HF 仓库名（默认使用 out/transformers/LanSight2-V）')
+                        help='当 --load 1 时，Transformers 模型的本地目录或 HF 仓库名（默认使用 out/transformers/LanSight_Model）')
     parser.add_argument('--model_mode', default=1, type=int,
                         help="0: Pretrain模型，1: SFT模型，2: SFT-多图模型 (beta拓展)")
     args = parser.parse_args()
