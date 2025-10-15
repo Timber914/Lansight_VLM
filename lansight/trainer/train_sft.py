@@ -13,6 +13,7 @@ import torch.distributed as dist
 
 __package__ = "trainer"
 from lansight.utils.paths import MODEL_DIR, VISION_MODEL_DIR, OUT_DIR, DATASETS_DIR, SFT_JSONL, SFT_IMAGES_DIR, RUNLOGS_DIR
+from pathlib import Path as _P
 from pathlib import Path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
@@ -114,6 +115,18 @@ def train_epoch(epoch, wandb):
                         os.remove(prev_ckp)
                 except Exception as e:
                     Logger(f"[WARN] 删除旧权重失败: {prev_ckp} -> {e}")
+            # 自动导出 Transformers 结构（覆盖 out/transformers/LanSight_Model）
+            try:
+                from lansight.scripts.convert import convert_torch2transformers
+                import torch as _torch
+                tf_dir = _P(OUT_DIR) / 'transformers' / 'LanSight_Model'
+                os.makedirs(tf_dir, exist_ok=True)
+                prec_map = {'bf16': _torch.bfloat16, 'fp16': _torch.float16, 'fp32': _torch.float32}
+                use_dtype = prec_map.get(str(getattr(args, 'precision', 'bf16')).lower(), _torch.bfloat16)
+                Logger(f"[export] 导出 Transformers 到: {tf_dir}")
+                convert_torch2transformers(ckp, str(tf_dir), model_config, dtype=use_dtype)
+            except Exception as ex:
+                Logger(f"[WARN] 自动导出 Transformers 失败: {ex}")
             model.train()
 
         # 可选：限制每轮的训练步数用于快速验证
