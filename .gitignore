@@ -1,0 +1,20 @@
+# OS artifacts
+.DS_Store
+
+# Python cache and virtualenv
+__pycache__/
+*.py[cod]
+.venv/
+
+# Model weights and outputs
+*.pth
+*.bin
+out/
+runlogs/
+
+# Local datasets
+dataset/
+datasets/
+
+# CLIP weights (full folder can be huge; keep out of git)
+lansight/model/vision_model/clip-vit-base-patch16/
