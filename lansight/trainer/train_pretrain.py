@@ -138,8 +138,8 @@ def init_model(model_config: VLMConfig):
     """初始化分词器与模型，按需冻结参数并统计可训练参数量。"""
     tokenizer = BasicChatTokenizer() if args.demo_tokenizer else AutoTokenizer.from_pretrained(str(MODEL_DIR), use_fast=False)
     moe_path = '_moe' if model_config.use_moe else ''
-    # 加载纯语言模型权重
-    ckp = f'{args.save_dir}/llm_{model_config.hidden_size}{moe_path}.pth'
+    # 加载纯语言模型权重：一律从 out/ 读取基座（与保存目录 runlogs/ 解耦）
+    ckp = f'{OUT_DIR}/llm_{model_config.hidden_size}{moe_path}.pth'
     model = LanSightVLM(model_config, vision_model_path=str(VISION_MODEL_DIR))
     state_dict = torch.load(ckp, map_location=args.device)
     model.load_state_dict(state_dict, strict=False)
