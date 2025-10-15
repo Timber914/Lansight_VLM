@@ -10,7 +10,8 @@ __pycache__/
 *.pth
 *.bin
 out/
-runlogs/
+runlogs/*
+!runlogs/.gitkeep
 
 # Local datasets
 dataset/
