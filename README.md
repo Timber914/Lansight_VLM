@@ -58,6 +58,11 @@ python -m lansight.trainer.train_pretrain --device cuda:0 --epochs 1 --batch_siz
 ```bash
 python -m lansight.trainer.train_sft --device cuda:0 --epochs 4 --batch_size 4
 ```
+或执行
+```
+python start.py
+```
+
 ### 4.数据集
 数据集构成
 本模型的训练数据由两个核心部分组成：用于视觉-语言特征对齐的预训练数据集，以及用于提升指令遵循能力的微调数据集。
